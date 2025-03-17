@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>화면 공유 클라이언트</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            background-color: #f5f5f5;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+        .container {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            padding: 20px;
+            width: 350px;
+            text-align: center;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+            text-align: left;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            width: 100%;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .connection-info {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #f9f9f9;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+            text-align: left;
+        }
+        .status {
+            font-weight: bold;
+            margin-top: 10px;
+        }
+        .status.connected {
+            color: #4CAF50;
+        }
+        .status.connecting {
+            color: #ff9800;
+        }
+        .status.disconnected {
+            color: #f44336;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>화면 공유 클라이언트</h1>
+        <div class="form-group">
+            <label for="peerId">P2P 코드 입력:</label>
+            <input type="text" id="peerId" placeholder="P2P 코드를 입력하세요">
+        </div>
+        <button id="connectBtn">연결하기</button>
+        
+        <div class="connection-info" id="connectionInfo" style="display: none;">
+            <p>뷰어 연결 코드: <span id="viewerCode"></span></p>
+            <button id="copyBtn">코드 복사</button>
+            <div class="status disconnected" id="connectionStatus">연결 상태: 연결 끊김</div>
+        </div>
+    </div>
+
+    <script>
+        // 서비스 워커 등록 (백그라운드 작업 지원)
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('service-worker.js')
+                .then(registration => {
+                    console.log('서비스 워커 등록 성공:', registration.scope);
+                })
+                .catch(error => {
+                    console.error('서비스 워커 등록 실패:', error);
+                });
+            });
+        }
+
+        // WebRTC 설정
+        const configuration = {
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' },
+                { urls: 'stun:stun2.l.google.com:19302' }
+            ],
+            iceCandidatePoolSize: 10
+        };
+
+        let peerConnection = null;
+        let localStream = null;
+        let dataChannel = null;
+        let signalData = null;
+        let isConnected = false;
+        let keepAliveInterval = null;
+
+        // 화면 캡처 시작
+        async function startCapture() {
+            try {
+                localStream = await navigator.mediaDevices.getDisplayMedia({
+                    video: {
+                        cursor: 'always',
+                        displaySurface: 'monitor',
+                        logicalSurface: true,
+                        frameRate: { ideal: 30, max: 60 }
+                    },
+                    audio: false
+                });
+                
+                // 사용자가 화면 공유를 중단했을 때 처리
+                localStream.getVideoTracks()[0].addEventListener('ended', () => {
+                    console.log('사용자가 화면 공유를 중단했습니다.');
+                    // 연결이 살아있다면 다시 화면 공유 시작 시도
+                    if (isConnected) {
+                        setTimeout(async () => {
+                            if (isConnected) {
+                                await restartCapture();
+                            }
+                        }, 1000);
+                    }
+                });
+                
+                return true;
+            } catch (err) {
+                console.error('화면 캡처 중 오류 발생:', err);
+                return false;
+            }
+        }
+
+        // 화면 캡처 재시작
+        async function restartCapture() {
+            try {
+                if (localStream) {
+                    localStream.getTracks().forEach(track => track.stop());
+                }
+                
+                const result = await startCapture();
+                if (result && peerConnection) {
+                    // 기존 트랙 제거
+                    const senders = peerConnection.getSenders();
+                    senders.forEach(sender => {
+                        if (sender.track && sender.track.kind === 'video') {
+                            peerConnection.removeTrack(sender);
+                        }
+                    });
+                    
+                    // 새 트랙 추가
+                    localStream.getVideoTracks().forEach(track => {
+                        peerConnection.addTrack(track, localStream);
+                    });
+                }
+                return result;
+            } catch (err) {
+                console.error('화면 캡처 재시작 중 오류 발생:', err);
+                return false;
+            }
+        }
+
+        // P2P 연결 시작
+        async function startConnection(peerId) {
+            try {
+                // 이전 연결 정리
+                if (peerConnection) {
+                    peerConnection.close();
+                }
+                
+                // 새 연결 생성
+                peerConnection = new RTCPeerConnection(configuration);
+                
+                // 데이터 채널 생성 (시그널링 및 제어 메시지용)
+                dataChannel = peerConnection.createDataChannel('controlChannel', {
+                    ordered: true,
+                    maxRetransmits: 3
+                });
+                
+                setupDataChannel(dataChannel);
+                
+                // 화면 캡처 시작
+                const captureStarted = await startCapture();
+                if (!captureStarted) {
+                    return null;
+                }
+                
+                // 트랙 추가
+                localStream.getVideoTracks().forEach(track => {
+                    peerConnection.addTrack(track, localStream);
+                });
+                
+                // ICE 후보 수집 이벤트 처리
+                const iceCandidates = [];
+                peerConnection.onicecandidate = event => {
+                    if (event.candidate) {
+                        iceCandidates.push(event.candidate);
+                    } else {
+                        // ICE 수집 완료 - 시그널 데이터 업데이트
+                        signalData.iceCandidates = iceCandidates;
+                        document.getElementById('viewerCode').textContent = btoa(JSON.stringify(signalData));
+                    }
+                };
+                
+                // 연결 상태 변화 감지
+                peerConnection.onconnectionstatechange = () => {
+                    console.log('연결 상태 변경:', peerConnection.connectionState);
+                    updateConnectionStatus(peerConnection.connectionState);
+                    
+                    if (peerConnection.connectionState === 'connected') {
+                        isConnected = true;
+                        startKeepAlive();
+                    } else if (peerConnection.connectionState === 'disconnected' || 
+                               peerConnection.connectionState === 'failed' ||
+                               peerConnection.connectionState === 'closed') {
+                        isConnected = false;
+                        stopKeepAlive();
+                    }
+                };
+                
+                // SDP 제안 생성
+                const offer = await peerConnection.createOffer({
+                    offerToReceiveAudio: false,
+                    offerToReceiveVideo: false
+                });
+                
+                await peerConnection.setLocalDescription(offer);
+                
+                // 시그널 데이터 준비
+                signalData = {
+                    type: 'offer',
+                    sdp: peerConnection.localDescription,
+                    peerId: peerId,
+                    timestamp: Date.now(),
+                    iceCandidates: []
+                };
+                
+                // UI 업데이트
+                document.getElementById('connectionInfo').style.display = 'block';
+                updateConnectionStatus('connecting');
+                
+                return signalData;
+            } catch (err) {
+                console.error('연결 설정 중 오류 발생:', err);
+                return null;
+            }
+        }
+
+        // 데이터 채널 설정
+        function setupDataChannel(channel) {
+            channel.onopen = () => {
+                console.log('데이터 채널이 열렸습니다.');
+                // 주기적으로 상태 업데이트 메시지 전송
+                sendStatusUpdate();
+            };
+            
+            channel.onclose = () => {
+                console.log('데이터 채널이 닫혔습니다.');
+            };
+            
+            channel.onerror = (error) => {
+                console.error('데이터 채널 오류:', error);
+            };
+            
+            channel.onmessage = (event) => {
+                try {
+                    const message = JSON.parse(event.data);
+                    handleControlMessage(message);
+                } catch (err) {
+                    console.error('메시지 처리 중 오류 발생:', err);
+                }
+            };
+        }
+
+        // 제어 메시지 처리
+        function handleControlMessage(message) {
+            console.log('제어 메시지 수신:', message);
+            
+            switch (message.type) {
+                case 'ping':
+                    sendControlMessage({ type: 'pong', timestamp: Date.now() });
+                    break;
+                    
+                case 'restart':
+                    restartCapture();
+                    break;
+                    
+                case 'quality':
+                    adjustStreamQuality(message.value);
+                    break;
+            }
+        }
+
+        // 제어 메시지 전송
+        function sendControlMessage(message) {
+            if (dataChannel && dataChannel.readyState === 'open') {
+                dataChannel.send(JSON.stringify(message));
+            }
+        }
+
+        // 상태 업데이트 전송
+        function sendStatusUpdate() {
+            if (dataChannel && dataChannel.readyState === 'open') {
+                const statusMessage = {
+                    type: 'status',
+                    timestamp: Date.now(),
+                    screenActive: localStream && localStream.getVideoTracks()[0].readyState === 'live'
+                };
+                
+                sendControlMessage(statusMessage);
+            }
+        }
+
+        // 연결 상태 업데이트
+        function updateConnectionStatus(state) {
+            const statusElement = document.getElementById('connectionStatus');
+            statusElement.textContent = '연결 상태: ';
+            
+            switch (state) {
+                case 'new':
+                case 'checking':
+                case 'connecting':
+                    statusElement.textContent += '연결 중...';
+                    statusElement.className = 'status connecting';
+                    break;
+                    
+                case 'connected':
+                    statusElement.textContent += '연결됨';
+                    statusElement.className = 'status connected';
+                    break;
+                    
+                case 'disconnected':
+                    statusElement.textContent += '연결 끊김';
+                    statusElement.className = 'status disconnected';
+                    break;
+                    
+                case 'failed':
+                    statusElement.textContent += '연결 실패';
+                    statusElement.className = 'status disconnected';
+                    break;
+                    
+                case 'closed':
+                    statusElement.textContent += '연결 종료됨';
+                    statusElement.className = 'status disconnected';
+                    break;
+            }
+        }
+
+        // 스트림 품질 조정
+        function adjustStreamQuality(quality) {
+            if (!localStream) return;
+            
+            const videoTrack = localStream.getVideoTracks()[0];
+            if (!videoTrack) return;
+            
+            try {
+                const constraints = {};
+                
+                switch (quality) {
+                    case 'high':
+                        constraints.frameRate = { ideal: 30, max: 60 };
+                        constraints.width = { ideal: 1920 };
+                        constraints.height = { ideal: 1080 };
+                        break;
+                        
+                    case 'medium':
+                        constraints.frameRate = { ideal: 24, max: 30 };
+                        constraints.width = { ideal: 1280 };
+                        constraints.height = { ideal: 720 };
+                        break;
+                        
+                    case 'low':
+                        constraints.frameRate = { ideal: 15, max: 24 };
+                        constraints.width = { ideal: 854 };
+                        constraints.height = { ideal: 480 };
+                        break;
+                        
+                    case 'minimal':
+                        constraints.frameRate = { ideal: 10, max: 15 };
+                        constraints.width = { ideal: 640 };
+                        constraints.height = { ideal: 360 };
+                        break;
+                }
+                
+                if (Object.keys(constraints).length > 0) {
+                    videoTrack.applyConstraints(constraints);
+                }
+            } catch (err) {
+                console.error('스트림 품질 조정 중 오류 발생:', err);
+            }
+        }
+
+        // 연결 유지 기능
+        function startKeepAlive() {
+            stopKeepAlive();
+            
+            // 10초마다 상태 업데이트 전송
+            keepAliveInterval = setInterval(() => {
+                sendStatusUpdate();
+            }, 10000);
+        }
+
+        function stopKeepAlive() {
+            if (keepAliveInterval) {
+                clearInterval(keepAliveInterval);
+                keepAliveInterval = null;
+            }
+        }
+
+        // 응답 처리
+        async function handleAnswer(answerData) {
+            try {
+                if (!peerConnection) {
+                    console.error('연결 객체가 존재하지 않습니다.');
+                    return false;
+                }
+                
+                // 원격 설명 설정
+                const remoteDesc = new RTCSessionDescription(answerData.sdp);
+                await peerConnection.setRemoteDescription(remoteDesc);
+                
+                // ICE 후보 추가
+                if (answerData.iceCandidates && Array.isArray(answerData.iceCandidates)) {
+                    for (const candidate of answerData.iceCandidates) {
+                        await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+                    }
+                }
+                
+                return true;
+            } catch (err) {
+                console.error('응답 처리 중 오류 발생:', err);
+                return false;
+            }
+        }
+
+        // 코드 수신 및 연결 처리
+        async function processViewerCode(code) {
+            try {
+                const answerData = JSON.parse(atob(code));
+                if (answerData.type !== 'answer' || !answerData.sdp) {
+                    throw new Error('유효하지 않은 응답 데이터');
+                }
+                
+                return await handleAnswer(answerData);
+            } catch (err) {
+                console.error('뷰어 코드 처리 중 오류 발생:', err);
+                return false;
+            }
+        }
+
+        // UI 이벤트 핸들러
+        document.getElementById('connectBtn').addEventListener('click', async () => {
+            const peerId = document.getElementById('peerId').value.trim();
+            if (!peerId) {
+                alert('P2P 코드를 입력해주세요.');
+                return;
+            }
+            
+            const signalData = await startConnection(peerId);
+            if (!signalData) {
+                alert('연결 설정에 실패했습니다. 다시 시도해주세요.');
+            }
+        });
+
+        document.getElementById('copyBtn').addEventListener('click', () => {
+            const viewerCode = document.getElementById('viewerCode').textContent;
+            navigator.clipboard.writeText(viewerCode)
+                .then(() => alert('코드가 클립보드에 복사되었습니다.'))
+                .catch(err => console.error('복사 실패:', err));
+        });
+
+        // 페이지 닫힘 이벤트 처리
+        window.addEventListener('beforeunload', (event) => {
+            // 연결이 활성화된 상태라면 메시지 표시
+            if (isConnected) {
+                const message = '화면 공유 중입니다. 정말 나가시겠습니까?';
+                event.returnValue = message;
+                return message;
+            }
+        });
+    </script>
+</body>
+</html>

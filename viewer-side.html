@@ -50,10 +50,9 @@
             border: 1px solid #ddd;
             border-radius: 4px;
             box-sizing: border-box;
-        }
-        .button-group {
-            display: flex;
-            gap: 10px;
+            text-align: center;
+            font-size: 18px;
+            letter-spacing: 2px;
         }
         button {
             background-color: #4CAF50;
@@ -63,7 +62,8 @@
             border-radius: 4px;
             cursor: pointer;
             font-size: 16px;
-            flex: 1;
+            width: 100%;
+            margin-bottom: 10px;
         }
         button:hover {
             background-color: #45a049;
@@ -71,38 +71,6 @@
         button:disabled {
             background-color: #cccccc;
             cursor: not-allowed;
-        }
-        button.secondary {
-            background-color: #555;
-        }
-        button.secondary:hover {
-            background-color: #444;
-        }
-        .status-bar {
-            background-color: #f0f0f0;
-            padding: 10px;
-            margin-top: 10px;
-            border-radius: 4px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .status {
-            font-weight: bold;
-        }
-        .status.connected {
-            color: #4CAF50;
-        }
-        .status.connecting {
-            color: #ff9800;
-        }
-        .status.disconnected {
-            color: #f44336;
-        }
-        .quality-control {
-            display: flex;
-            align-items: center;
-            gap: 10px;
         }
         .screen-container {
             flex: 1;
@@ -121,16 +89,19 @@
         .hidden {
             display: none;
         }
-        .stats {
-            position: fixed;
-            bottom: 10px;
-            right: 10px;
-            background-color: rgba(0, 0, 0, 0.7);
-            color: white;
-            padding: 10px;
-            border-radius: 4px;
-            font-size: 12px;
-            z-index: 1000;
+        .status {
+            font-weight: bold;
+            text-align: center;
+            margin: 10px 0;
+        }
+        .status.connected {
+            color: #4CAF50;
+        }
+        .status.connecting {
+            color: #ff9800;
+        }
+        .status.disconnected {
+            color: #f44336;
         }
         .controls {
             background-color: #333;
@@ -150,33 +121,16 @@
         .control-button:hover {
             background-color: #777;
         }
-        .fullscreen {
-            flex: 0;
-        }
-        .response-code {
-            background-color: #f8f9fa;
+        .code-display {
+            background-color: #eee;
             padding: 10px;
             border-radius: 4px;
-            border: 1px solid #ddd;
-            margin-top: 15px;
-            word-break: break-all;
             font-family: monospace;
-            font-size: 12px;
-        }
-        .debug-log {
-            margin-top: 20px;
-            background-color: #333;
-            color: #fff;
-            padding: 10px;
-            border-radius: 4px;
-            text-align: left;
-            max-height: 200px;
-            overflow-y: auto;
-            font-family: monospace;
-            font-size: 12px;
-            width: 90%;
-            max-width: 500px;
-            margin: 20px auto;
+            text-align: center;
+            margin: 10px 0;
+            font-size: 24px;
+            letter-spacing: 3px;
+            font-weight: bold;
         }
     </style>
 </head>
@@ -186,42 +140,24 @@
     </div>
     
     <div id="httpWarning" class="warning-banner hidden">
-        <strong>주의!</strong> HTTP 환경에서 실행 중입니다. 일부 기능이 제한될 수 있으며, HTTPS에서 사용하는 것이 좋습니다.
+        <strong>주의!</strong> HTTP 환경에서 실행 중입니다. 기능이 제한될 수 있습니다.
     </div>
     
     <div class="connection-panel" id="connectionPanel">
         <div class="form-group">
             <label for="connectionCode">연결 코드 입력:</label>
-            <input type="text" id="connectionCode" placeholder="클라이언트에서 제공한 연결 코드를 입력하세요">
+            <input type="text" id="connectionCode" placeholder="6자리 코드 입력" maxlength="6" inputmode="numeric">
         </div>
         
-        <div class="form-group">
-            <label for="viewerId">내 P2P ID:</label>
-            <input type="text" id="viewerId" placeholder="고유 ID를 입력하세요 (예: 임의의 문자열)">
-        </div>
+        <button id="connectBtn">연결하기</button>
         
-        <div class="button-group">
-            <button id="connectBtn">연결하기</button>
-            <button id="generateIdBtn" class="secondary">ID 생성</button>
-        </div>
+        <div class="status disconnected" id="connectionStatus">연결 상태: 대기 중</div>
         
-        <div class="status-bar hidden" id="statusBar">
-            <div class="status disconnected" id="connectionStatus">연결 상태: 연결 끊김</div>
-            <div class="quality-control">
-                <label for="qualitySelect">화질:</label>
-                <select id="qualitySelect">
-                    <option value="high">고화질</option>
-                    <option value="medium" selected>중화질</option>
-                    <option value="low">저화질</option>
-                    <option value="minimal">최소화질</option>
-                </select>
-            </div>
-        </div>
-        
-        <div id="responseCodeContainer" class="hidden">
-            <p>클라이언트에게 전달할 응답 코드:</p>
-            <div id="responseCode" class="response-code"></div>
-            <button id="copyResponseBtn">응답 코드 복사</button>
+        <div id="viewerCodeContainer" style="display:none">
+            <p>당신의 뷰어 코드:</p>
+            <div class="code-display" id="viewerCode">----</div>
+            <button id="copyCodeBtn">코드 복사</button>
+            <p>이 코드를 클라이언트에게 알려주세요.</p>
         </div>
     </div>
     
@@ -232,51 +168,40 @@
     <div class="controls hidden" id="controls">
         <button class="control-button" id="refreshBtn">화면 새로고침</button>
         <button class="control-button" id="fullscreenBtn">전체화면</button>
+        <button class="control-button" id="qualityBtn">화질 변경</button>
         <button class="control-button" id="disconnectBtn">연결 끊기</button>
     </div>
-    
-    <div class="stats hidden" id="stats">
-        <div>해상도: <span id="resolution">-</span></div>
-        <div>프레임레이트: <span id="framerate">-</span> fps</div>
-        <div>비트레이트: <span id="bitrate">-</span> kbps</div>
-        <div>지연시간: <span id="latency">-</span> ms</div>
-    </div>
-    
-    <div class="debug-log hidden" id="debugLog"></div>
 
     <script>
-        // 디버그 로그 출력 함수
-        function log(message, isError = false) {
-            const logElement = document.getElementById('debugLog');
-            const entry = document.createElement('p');
-            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
-            
-            if (isError) {
-                entry.style.color = '#ff6b6b';
-            }
-            
-            logElement.appendChild(entry);
-            logElement.scrollTop = logElement.scrollHeight;
-            console[isError ? 'error' : 'log'](message);
-        }
+        // 전역 변수
+        let peerConnection = null;
+        let dataChannel = null;
+        let isConnected = false;
+        let viewerCode = '';
         
-        // 디버그 모드 활성화 (URL에 ?debug=true 파라미터가 있을 때)
-        const urlParams = new URLSearchParams(window.location.search);
-        const isDebugMode = urlParams.get('debug') === 'true';
+        // DOM 요소
+        const connectBtn = document.getElementById('connectBtn');
+        const connectionCodeInput = document.getElementById('connectionCode');
+        const connectionStatus = document.getElementById('connectionStatus');
+        const viewerCodeContainer = document.getElementById('viewerCodeContainer');
+        const viewerCodeDisplay = document.getElementById('viewerCode');
+        const copyCodeBtn = document.getElementById('copyCodeBtn');
+        const screenContainer = document.getElementById('screenContainer');
+        const remoteVideo = document.getElementById('remoteVideo');
+        const controls = document.getElementById('controls');
+        const refreshBtn = document.getElementById('refreshBtn');
+        const fullscreenBtn = document.getElementById('fullscreenBtn');
+        const qualityBtn = document.getElementById('qualityBtn');
+        const disconnectBtn = document.getElementById('disconnectBtn');
+        const httpWarning = document.getElementById('httpWarning');
         
-        if (isDebugMode) {
-            document.getElementById('debugLog').classList.remove('hidden');
-            log('디버그 모드 활성화됨');
-        }
-
         // HTTP 경고 표시
         if (window.location.protocol === 'http:' && 
             window.location.hostname !== 'localhost' && 
             window.location.hostname !== '127.0.0.1') {
-            document.getElementById('httpWarning').classList.remove('hidden');
-            log('HTTP 환경 감지됨 - 일부 기능이 제한될 수 있음', true);
+            httpWarning.classList.remove('hidden');
         }
-
+        
         // WebRTC 설정
         const configuration = {
             iceServers: [
@@ -285,283 +210,107 @@
                 { urls: 'stun:stun2.l.google.com:19302' },
                 { urls: 'stun:stun3.l.google.com:19302' },
                 { urls: 'stun:stun4.l.google.com:19302' }
-            ],
-            iceCandidatePoolSize: 10
+            ]
         };
-
-        let peerConnection = null;
-        let dataChannel = null;
-        let isConnected = false;
-        let statsInterval = null;
-        let latencyCheckInterval = null;
-        let lastPingTime = 0;
-
-        // DOM 요소
-        const connectBtn = document.getElementById('connectBtn');
-        const generateIdBtn = document.getElementById('generateIdBtn');
-        const connectionCodeInput = document.getElementById('connectionCode');
-        const viewerIdInput = document.getElementById('viewerId');
-        const connectionPanel = document.getElementById('connectionPanel');
-        const statusBar = document.getElementById('statusBar');
-        const connectionStatus = document.getElementById('connectionStatus');
-        const screenContainer = document.getElementById('screenContainer');
-        const remoteVideo = document.getElementById('remoteVideo');
-        const controls = document.getElementById('controls');
-        const refreshBtn = document.getElementById('refreshBtn');
-        const fullscreenBtn = document.getElementById('fullscreenBtn');
-        const disconnectBtn = document.getElementById('disconnectBtn');
-        const qualitySelect = document.getElementById('qualitySelect');
-        const stats = document.getElementById('stats');
-        const responseCodeContainer = document.getElementById('responseCodeContainer');
-        const responseCode = document.getElementById('responseCode');
-        const copyResponseBtn = document.getElementById('copyResponseBtn');
-
-        // 브라우저 호환성 검사
-        function checkBrowserCompatibility() {
-            const results = {
-                isCompatible: true,
-                warnings: [],
-                fatals: []
+        
+        // 4자리 랜덤 코드 생성
+        function generateRandomCode() {
+            return Math.floor(1000 + Math.random() * 9000).toString();
+        }
+        
+        // 시그널링 서버 역할을 하는 전역 객체 (실제 서버가 없이 동작하도록)
+        const signalServer = {
+            connections: {},
+            
+            // 연결 코드 등록
+            register(code, callbacks) {
+                this.connections[code] = callbacks;
+            },
+            
+            // 연결 코드 제거
+            unregister(code) {
+                delete this.connections[code];
+            },
+            
+            // 수신 측에 신호 전달
+            sendToReceiver(senderCode, data) {
+                const receiver = this.connections[data.receiverCode];
+                if (receiver && receiver.onMessage) {
+                    setTimeout(() => {
+                        receiver.onMessage({
+                            senderCode,
+                            ...data
+                        });
+                    }, 10);
+                }
+            }
+        };
+        
+        // P2P 연결 설정
+        function setupPeerConnection() {
+            if (peerConnection) {
+                peerConnection.close();
+            }
+            
+            peerConnection = new RTCPeerConnection(configuration);
+            
+            // 데이터 채널 이벤트 처리
+            peerConnection.ondatachannel = (event) => {
+                dataChannel = event.channel;
+                setupDataChannel(dataChannel);
             };
             
-            // WebRTC 지원 확인
-            if (!window.RTCPeerConnection) {
-                results.isCompatible = false;
-                results.fatals.push('WebRTC가 지원되지 않습니다.');
-            }
-            
-            // HTTP 환경 확인
-            if (window.location.protocol === 'http:' && 
-                window.location.hostname !== 'localhost' && 
-                window.location.hostname !== '127.0.0.1') {
-                
-                results.warnings.push('HTTP 환경에서는 일부 기능이 제한될 수 있습니다.');
-            }
-            
-            // 모바일 기기 확인
-            if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
-                results.warnings.push('모바일 기기에서는 화면 공유 뷰어가 제한적으로 작동할 수 있습니다.');
-            }
-            
-            return results;
-        }
-
-        // 페이지 로딩 시 브라우저 호환성 확인
-        window.addEventListener('load', () => {
-            const compatResult = checkBrowserCompatibility();
-            
-            // 호환성 문제가 있으면 경고 표시
-            if (!compatResult.isCompatible) {
-                let errorMessage = '브라우저 호환성 문제:\n';
-                compatResult.fatals.forEach(msg => {
-                    errorMessage += '- ' + msg + '\n';
-                    log(msg, true);
-                });
-                
-                alert(errorMessage + '\n\n최신 Chrome, Firefox, Edge 브라우저를 사용해주세요.');
-                connectBtn.disabled = true;
-            } else if (compatResult.warnings.length > 0) {
-                compatResult.warnings.forEach(msg => log(msg, false));
-            }
-        });
-
-        // 랜덤 ID 생성
-        function generateUUID() {
-            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-                const r = Math.random() * 16 | 0;
-                const v = c === 'x' ? r : (r & 0x3 | 0x8);
-                return v.toString(16);
-            });
-        }
-
-        // ID 생성 버튼 이벤트
-        generateIdBtn.addEventListener('click', () => {
-            viewerIdInput.value = generateUUID();
-        });
-
-        // 초기 ID 설정
-        if (!viewerIdInput.value) {
-            viewerIdInput.value = generateUUID();
-        }
-
-        // 연결 시작
-        async function startConnection() {
-            try {
-                const connectionCode = connectionCodeInput.value.trim();
-                const viewerId = viewerIdInput.value.trim();
-                
-                if (!connectionCode) {
-                    alert('연결 코드를 입력해주세요.');
-                    return false;
+            // 트랙 이벤트 처리
+            peerConnection.ontrack = (event) => {
+                if (remoteVideo.srcObject !== event.streams[0]) {
+                    remoteVideo.srcObject = event.streams[0];
+                    
+                    // UI 업데이트
+                    screenContainer.classList.remove('hidden');
+                    controls.classList.remove('hidden');
                 }
-                
-                if (!viewerId) {
-                    alert('P2P ID를 입력해주세요.');
-                    return false;
-                }
-                
-                // 브라우저 호환성 다시 확인
-                const compatResult = checkBrowserCompatibility();
-                if (!compatResult.isCompatible) {
-                    let errorMessage = '브라우저 호환성 문제:\n';
-                    compatResult.fatals.forEach(msg => {
-                        errorMessage += '- ' + msg + '\n';
+            };
+            
+            // ICE 후보 처리
+            peerConnection.onicecandidate = event => {
+                if (event.candidate && signalServer.connections[viewerCode]) {
+                    signalServer.sendToReceiver(viewerCode, {
+                        type: 'ice-candidate',
+                        receiverCode: connectionCodeInput.value,
+                        candidate: event.candidate
                     });
-                    
-                    alert(errorMessage);
-                    return false;
                 }
+            };
+            
+            // 연결 상태 변화 감지
+            peerConnection.onconnectionstatechange = () => {
+                updateConnectionStatus(peerConnection.connectionState);
                 
-                // 이전 연결 정리
-                if (peerConnection) {
-                    peerConnection.close();
+                if (peerConnection.connectionState === 'connected') {
+                    isConnected = true;
+                } else if (peerConnection.connectionState === 'disconnected' || 
+                          peerConnection.connectionState === 'failed' ||
+                          peerConnection.connectionState === 'closed') {
+                    isConnected = false;
                 }
-                
-                // 연결 상태 업데이트
-                statusBar.classList.remove('hidden');
-                updateConnectionStatus('connecting');
-                
-                try {
-                    // 연결 코드 디코딩
-                    let offerData;
-                    try {
-                        offerData = JSON.parse(atob(connectionCode));
-                    } catch (e) {
-                        throw new Error('연결 코드를 해석할 수 없습니다. 올바른 코드인지 확인하세요.');
-                    }
-                    
-                    if (offerData.type !== 'offer' || !offerData.sdp) {
-                        throw new Error('유효하지 않은 연결 코드입니다.');
-                    }
-                    
-                    log('유효한 연결 코드 확인됨');
-                    
-                    // 새 연결 생성
-                    peerConnection = new RTCPeerConnection(configuration);
-                    log('새 RTCPeerConnection 생성됨');
-                    
-                    // 데이터 채널 이벤트 처리
-                    peerConnection.ondatachannel = (event) => {
-                        dataChannel = event.channel;
-                        log('데이터 채널 수신됨');
-                        setupDataChannel(dataChannel);
-                    };
-                    
-                    // 트랙 이벤트 처리
-                    peerConnection.ontrack = (event) => {
-                        log('원격 트랙 수신됨');
-                        if (remoteVideo.srcObject !== event.streams[0]) {
-                            log('원격 스트림 설정 중');
-                            remoteVideo.srcObject = event.streams[0];
-                            
-                            // UI 업데이트
-                            screenContainer.classList.remove('hidden');
-                            controls.classList.remove('hidden');
-                            stats.classList.remove('hidden');
-                            
-                            // 품질 조정 요청
-                            setTimeout(() => {
-                                if (dataChannel && dataChannel.readyState === 'open') {
-                                    sendControlMessage({ 
-                                        type: 'quality', 
-                                        value: qualitySelect.value 
-                                    });
-                                }
-                            }, 2000);
-                        }
-                    };
-                    
-                    // ICE 후보 수집 이벤트 처리
-                    const iceCandidates = [];
-                    peerConnection.onicecandidate = (event) => {
-                        if (event.candidate) {
-                            iceCandidates.push(event.candidate);
-                            log('ICE 후보 수집: ' + iceCandidates.length + '개');
-                        } else {
-                            log('ICE 후보 수집 완료');
-                            
-                            // 응답 코드 생성 및 표시
-                            const answerData = {
-                                type: 'answer',
-                                sdp: peerConnection.localDescription,
-                                viewerId: viewerId,
-                                timestamp: Date.now(),
-                                iceCandidates: iceCandidates
-                            };
-                            
-                            const answerCode = btoa(JSON.stringify(answerData));
-                            responseCode.textContent = answerCode;
-                            responseCodeContainer.classList.remove('hidden');
-                        }
-                    };
-                    
-                    // 연결 상태 변화 감지
-                    peerConnection.onconnectionstatechange = () => {
-                        log('연결 상태 변경: ' + peerConnection.connectionState);
-                        updateConnectionStatus(peerConnection.connectionState);
-                        
-                        if (peerConnection.connectionState === 'connected') {
-                            isConnected = true;
-                            startStats();
-                            startLatencyCheck();
-                        } else if (peerConnection.connectionState === 'disconnected' || 
-                                  peerConnection.connectionState === 'failed' ||
-                                  peerConnection.connectionState === 'closed') {
-                            isConnected = false;
-                            stopStats();
-                            stopLatencyCheck();
-                        }
-                    };
-                    
-                    // 원격 설명 설정
-                    log('원격 SDP 설정 중...');
-                    const remoteDesc = new RTCSessionDescription(offerData.sdp);
-                    await peerConnection.setRemoteDescription(remoteDesc);
-                    log('원격 SDP 설정됨');
-                    
-                    // ICE 후보 추가
-                    if (offerData.iceCandidates && Array.isArray(offerData.iceCandidates)) {
-                        log('원격 ICE 후보 추가 중: ' + offerData.iceCandidates.length + '개');
-                        for (const candidate of offerData.iceCandidates) {
-                            await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
-                        }
-                        log('모든 원격 ICE 후보 추가됨');
-                    }
-                    
-                    // 응답 생성
-                    log('로컬 SDP 생성 중...');
-                    const answer = await peerConnection.createAnswer();
-                    await peerConnection.setLocalDescription(answer);
-                    log('로컬 SDP 설정됨');
-                    
-                    return true;
-                } catch (err) {
-                    log('연결 설정 오류: ' + err.message, true);
-                    alert('연결 설정에 실패했습니다: ' + err.message);
-                    updateConnectionStatus('disconnected');
-                    return false;
-                }
-            } catch (err) {
-                log('연결 시작 오류: ' + err.message, true);
-                alert('연결 설정에 실패했습니다.');
-                return false;
-            }
+            };
+            
+            return peerConnection;
         }
-
+        
         // 데이터 채널 설정
         function setupDataChannel(channel) {
             channel.onopen = () => {
-                log('데이터 채널이 열렸습니다.');
-                // 연결 완료 메시지 전송
+                console.log('데이터 채널 열림');
                 sendControlMessage({ type: 'connected', timestamp: Date.now() });
             };
             
             channel.onclose = () => {
-                log('데이터 채널이 닫혔습니다.');
+                console.log('데이터 채널 닫힘');
             };
             
             channel.onerror = (error) => {
-                log('데이터 채널 오류: ' + error, true);
+                console.error('데이터 채널 오류:', error);
             };
             
             channel.onmessage = (event) => {
@@ -569,47 +318,34 @@
                     const message = JSON.parse(event.data);
                     handleControlMessage(message);
                 } catch (err) {
-                    log('메시지 처리 오류: ' + err.message, true);
+                    console.error('메시지 처리 오류:', err);
                 }
             };
         }
-
+        
         // 제어 메시지 처리
         function handleControlMessage(message) {
-            if (isDebugMode) {
-                log('메시지 수신: ' + message.type);
-            }
-            
             switch (message.type) {
                 case 'status':
-                    // 연결 상태 업데이트
+                    // 화면 공유 상태 업데이트
                     if (!message.screenActive) {
-                        log('화면 공유가 비활성화됨, 재시작 요청 중');
                         sendControlMessage({ type: 'restart' });
                     }
                     break;
                     
                 case 'pong':
-                    // 지연시간 계산
-                    if (lastPingTime > 0) {
-                        const latency = Date.now() - lastPingTime;
-                        latencySpan.textContent = latency;
-                        lastPingTime = 0;
-                    }
+                    // 지연시간 측정용 (현재는 사용하지 않음)
                     break;
             }
         }
-
+        
         // 제어 메시지 전송
         function sendControlMessage(message) {
             if (dataChannel && dataChannel.readyState === 'open') {
                 dataChannel.send(JSON.stringify(message));
-                if (isDebugMode) {
-                    log('메시지 전송: ' + message.type);
-                }
             }
         }
-
+        
         // 연결 상태 업데이트
         function updateConnectionStatus(state) {
             switch (state) {
@@ -642,131 +378,106 @@
                     // UI 업데이트
                     screenContainer.classList.add('hidden');
                     controls.classList.add('hidden');
-                    stats.classList.add('hidden');
                     break;
             }
         }
-
-        // 통계 모니터링 시작
-        function startStats() {
-            stopStats();
+        
+        // 메시지 수신 처리
+        function handleSignalingMessage(message) {
+            if (!peerConnection) return;
             
-            statsInterval = setInterval(async () => {
-                if (!peerConnection) return;
-                
-                try {
-                    const stats = await peerConnection.getStats();
-                    processStats(stats);
-                } catch (err) {
-                    log('통계 수집 오류: ' + err.message, true);
-                }
-            }, 1000);
-            
-            log('통계 모니터링 시작됨');
-        }
-
-        // 통계 모니터링 중지
-        function stopStats() {
-            if (statsInterval) {
-                clearInterval(statsInterval);
-                statsInterval = null;
-                log('통계 모니터링 중지됨');
-            }
-        }
-
-        // 통계 처리
-        function processStats(stats) {
-            let frameWidth = 0;
-            let frameHeight = 0;
-            let framesPerSecond = 0;
-            let bytesReceived = 0;
-            let timestamp = 0;
-            
-            stats.forEach(report => {
-                if (report.type === 'inbound-rtp' && report.kind === 'video') {
-                    bytesReceived = report.bytesReceived;
-                    timestamp = report.timestamp;
-                    framesPerSecond = report.framesPerSecond;
+            switch (message.type) {
+                case 'offer':
+                    handleOfferMessage(message);
+                    break;
                     
-                    if (report.frameWidth && report.frameHeight) {
-                        frameWidth = report.frameWidth;
-                        frameHeight = report.frameHeight;
-                    }
-                }
-            });
-            
-            // 통계 업데이트
-            if (frameWidth > 0 && frameHeight > 0) {
-                resolutionSpan.textContent = `${frameWidth}x${frameHeight}`;
-            }
-            
-            if (framesPerSecond > 0) {
-                framerateSpan.textContent = framesPerSecond.toFixed(1);
-            }
-            
-            if (bytesReceived > 0 && timestamp > 0) {
-                // 비트레이트 계산 (kbps)
-                const bitrateValue = (bytesReceived * 8 / 1000);
-                bitrateSpan.textContent = bitrateValue.toFixed(0);
+                case 'answer':
+                    handleAnswerMessage(message);
+                    break;
+                    
+                case 'ice-candidate':
+                    handleIceCandidateMessage(message);
+                    break;
             }
         }
-
-        // 지연시간 체크 시작
-        function startLatencyCheck() {
-            stopLatencyCheck();
-            
-            latencyCheckInterval = setInterval(() => {
-                if (dataChannel && dataChannel.readyState === 'open') {
-                    lastPingTime = Date.now();
-                    sendControlMessage({ type: 'ping', timestamp: lastPingTime });
-                }
-            }, 5000);
-            
-            log('지연시간 체크 시작됨');
-        }
-
-        // 지연시간 체크 중지
-        function stopLatencyCheck() {
-            if (latencyCheckInterval) {
-                clearInterval(latencyCheckInterval);
-                latencyCheckInterval = null;
-                log('지연시간 체크 중지됨');
+        
+        // SDP 제안 처리
+        async function handleOfferMessage(message) {
+            try {
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(message.sdp));
+                
+                const answer = await peerConnection.createAnswer();
+                await peerConnection.setLocalDescription(answer);
+                
+                signalServer.sendToReceiver(viewerCode, {
+                    type: 'answer',
+                    receiverCode: message.senderCode,
+                    sdp: peerConnection.localDescription
+                });
+            } catch (err) {
+                console.error('제안 처리 오류:', err);
             }
         }
-
-        // 품질 변경
-        qualitySelect.addEventListener('change', () => {
-            const quality = qualitySelect.value;
-            log('화질 변경 요청: ' + quality);
+        
+        // SDP 응답 처리
+        async function handleAnswerMessage(message) {
+            try {
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(message.sdp));
+            } catch (err) {
+                console.error('응답 처리 오류:', err);
+            }
+        }
+        
+        // ICE 후보 처리
+        async function handleIceCandidateMessage(message) {
+            try {
+                await peerConnection.addIceCandidate(new RTCIceCandidate(message.candidate));
+            } catch (err) {
+                console.error('ICE 후보 처리 오류:', err);
+            }
+        }
+        
+        // 연결 시작
+        function startConnection() {
+            const connectionCode = connectionCodeInput.value.trim();
             
-            if (dataChannel && dataChannel.readyState === 'open') {
-                sendControlMessage({ type: 'quality', value: quality });
+            if (!connectionCode) {
+                alert('연결 코드를 입력해주세요.');
+                return;
             }
-        });
-
-        // 전체화면
-        fullscreenBtn.addEventListener('click', () => {
-            log('전체화면 모드 요청');
-            if (remoteVideo.requestFullscreen) {
-                remoteVideo.requestFullscreen();
-            } else if (remoteVideo.webkitRequestFullscreen) {
-                remoteVideo.webkitRequestFullscreen();
-            } else if (remoteVideo.msRequestFullscreen) {
-                remoteVideo.msRequestFullscreen();
+            
+            if (connectionCode.length !== 6) {
+                alert('연결 코드는 6자리여야 합니다.');
+                return;
             }
-        });
-
-        // 화면 새로고침
-        refreshBtn.addEventListener('click', () => {
-            log('화면 새로고침 요청');
-            if (dataChannel && dataChannel.readyState === 'open') {
-                sendControlMessage({ type: 'restart' });
+            
+            try {
+                // 뷰어 코드 생성
+                viewerCode = generateRandomCode();
+                viewerCodeDisplay.textContent = viewerCode;
+                
+                // 시그널링 서버에 등록
+                signalServer.register(viewerCode, {
+                    onMessage: handleSignalingMessage
+                });
+                
+                // P2P 연결 설정
+                setupPeerConnection();
+                
+                // UI 업데이트
+                updateConnectionStatus('connecting');
+                viewerCodeContainer.style.display = 'block';
+                connectBtn.disabled = true;
+                connectionCodeInput.disabled = true;
+            } catch (err) {
+                console.error('연결 시작 오류:', err);
+                alert('연결에 실패했습니다: ' + err.message);
+                updateConnectionStatus('disconnected');
             }
-        });
-
-        // 연결 끊기
-        disconnectBtn.addEventListener('click', () => {
-            log('연결 종료 요청');
+        }
+        
+        // 연결 종료
+        function disconnectConnection() {
             if (peerConnection) {
                 peerConnection.close();
                 peerConnection = null;
@@ -777,45 +488,83 @@
                 remoteVideo.srcObject = null;
             }
             
+            // 시그널링 서버에서 등록 해제
+            if (viewerCode) {
+                signalServer.unregister(viewerCode);
+            }
+            
             // UI 업데이트
             updateConnectionStatus('closed');
             screenContainer.classList.add('hidden');
             controls.classList.add('hidden');
-            stats.classList.add('hidden');
-            responseCodeContainer.classList.add('hidden');
-        });
-
-        // 응답 코드 복사
-        copyResponseBtn.addEventListener('click', () => {
-            const code = responseCode.textContent;
-            
-            navigator.clipboard.writeText(code)
+            connectBtn.disabled = false;
+            connectionCodeInput.disabled = false;
+            viewerCodeContainer.style.display = 'none';
+        }
+        
+        // 연결 버튼 이벤트
+        connectBtn.addEventListener('click', startConnection);
+        
+        // 코드 복사 버튼 이벤트
+        copyCodeBtn.addEventListener('click', () => {
+            navigator.clipboard.writeText(viewerCode)
                 .then(() => {
-                    log('응답 코드 복사됨');
-                    alert('응답 코드가 클립보드에 복사되었습니다.');
+                    alert('코드가 클립보드에 복사되었습니다.');
                 })
                 .catch(err => {
-                    log('복사 실패: ' + err.message, true);
+                    console.error('복사 실패:', err);
                     
-                    // 클립보드 API가 실패하면 대체 방법 시도
+                    // 대체 복사 방법
                     const tempInput = document.createElement('textarea');
-                    tempInput.value = code;
+                    tempInput.value = viewerCode;
                     document.body.appendChild(tempInput);
                     tempInput.select();
                     
                     try {
                         document.execCommand('copy');
-                        alert('응답 코드가 클립보드에 복사되었습니다.');
+                        alert('코드가 클립보드에 복사되었습니다.');
                     } catch (err) {
-                        alert('클립보드 복사 실패. 코드를 직접 선택하여 복사해주세요.');
+                        alert('복사 실패. 코드를 직접 선택하여 복사해주세요: ' + viewerCode);
                     }
                     
                     document.body.removeChild(tempInput);
                 });
         });
-
-        // 연결 버튼 이벤트
-        connectBtn.addEventListener('click', startConnection);
+        
+        // 화면 새로고침 버튼 이벤트
+        refreshBtn.addEventListener('click', () => {
+            if (dataChannel && dataChannel.readyState === 'open') {
+                sendControlMessage({ type: 'restart' });
+            }
+        });
+        
+        // 전체화면 버튼 이벤트
+        fullscreenBtn.addEventListener('click', () => {
+            if (remoteVideo.requestFullscreen) {
+                remoteVideo.requestFullscreen();
+            } else if (remoteVideo.webkitRequestFullscreen) {
+                remoteVideo.webkitRequestFullscreen();
+            } else if (remoteVideo.msRequestFullscreen) {
+                remoteVideo.msRequestFullscreen();
+            }
+        });
+        
+        // 화질 변경 버튼 이벤트
+        let currentQuality = 'medium';
+        qualityBtn.addEventListener('click', () => {
+            const qualities = ['low', 'medium', 'high'];
+            const currentIndex = qualities.indexOf(currentQuality);
+            const nextIndex = (currentIndex + 1) % qualities.length;
+            currentQuality = qualities[nextIndex];
+            
+            if (dataChannel && dataChannel.readyState === 'open') {
+                sendControlMessage({ type: 'quality', value: currentQuality });
+                alert(`화질이 ${currentQuality === 'low' ? '낮음' : currentQuality === 'medium' ? '중간' : '높음'}으로 변경되었습니다.`);
+            }
+        });
+        
+        // 연결 끊기 버튼 이벤트
+        disconnectBtn.addEventListener('click', disconnectConnection);
     </script>
 </body>
 </html>

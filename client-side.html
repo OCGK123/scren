@@ -11,15 +11,18 @@
             display: flex;
             justify-content: center;
             align-items: center;
-            height: 100vh;
+            min-height: 100vh;
             margin: 0;
+            padding: 20px;
+            box-sizing: border-box;
         }
         .container {
             background-color: white;
             border-radius: 8px;
             box-shadow: 0 4px 8px rgba(0,0,0,0.1);
             padding: 20px;
-            width: 350px;
+            width: 100%;
+            max-width: 480px;
             text-align: center;
         }
         h1 {
@@ -55,6 +58,10 @@
         button:hover {
             background-color: #45a049;
         }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
         .connection-info {
             margin-top: 20px;
             padding: 10px;
@@ -62,6 +69,15 @@
             border-radius: 4px;
             border: 1px solid #ddd;
             text-align: left;
+        }
+        .viewer-code {
+            word-break: break-all;
+            background-color: #eee;
+            padding: 8px;
+            border-radius: 4px;
+            margin: 8px 0;
+            font-family: monospace;
+            font-size: 12px;
         }
         .status {
             font-weight: bold;
@@ -76,36 +92,91 @@
         .status.disconnected {
             color: #f44336;
         }
+        .warning-banner {
+            background-color: #fff3cd;
+            color: #856404;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+            border: 1px solid #ffeeba;
+            text-align: left;
+        }
+        .debug-log {
+            margin-top: 20px;
+            background-color: #333;
+            color: #fff;
+            padding: 10px;
+            border-radius: 4px;
+            text-align: left;
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .debug-log p {
+            margin: 5px 0;
+        }
+        .hidden {
+            display: none;
+        }
     </style>
 </head>
 <body>
     <div class="container">
+        <div id="httpWarning" class="warning-banner hidden">
+            <strong>HTTP 환경 감지됨!</strong> 일부 기능이 제한될 수 있으며, HTTPS 환경에서 사용하는 것이 좋습니다.
+        </div>
+        
         <h1>화면 공유 클라이언트</h1>
+        
         <div class="form-group">
             <label for="peerId">P2P 코드 입력:</label>
             <input type="text" id="peerId" placeholder="P2P 코드를 입력하세요">
         </div>
+        
         <button id="connectBtn">연결하기</button>
         
-        <div class="connection-info" id="connectionInfo" style="display: none;">
-            <p>뷰어 연결 코드: <span id="viewerCode"></span></p>
+        <div class="connection-info hidden" id="connectionInfo">
+            <p>뷰어 연결 코드:</p>
+            <div class="viewer-code" id="viewerCode">코드 생성 중...</div>
             <button id="copyBtn">코드 복사</button>
             <div class="status disconnected" id="connectionStatus">연결 상태: 연결 끊김</div>
         </div>
+        
+        <div class="debug-log hidden" id="debugLog"></div>
     </div>
 
     <script>
-        // 서비스 워커 등록 (백그라운드 작업 지원)
-        if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('service-worker.js')
-                .then(registration => {
-                    console.log('서비스 워커 등록 성공:', registration.scope);
-                })
-                .catch(error => {
-                    console.error('서비스 워커 등록 실패:', error);
-                });
-            });
+        // 디버그 로그 출력 함수
+        function log(message, isError = false) {
+            const logElement = document.getElementById('debugLog');
+            const entry = document.createElement('p');
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            
+            if (isError) {
+                entry.style.color = '#ff6b6b';
+            }
+            
+            logElement.appendChild(entry);
+            logElement.scrollTop = logElement.scrollHeight;
+            console[isError ? 'error' : 'log'](message);
+        }
+        
+        // 디버그 모드 활성화 (URL에 ?debug=true 파라미터가 있을 때)
+        const urlParams = new URLSearchParams(window.location.search);
+        const isDebugMode = urlParams.get('debug') === 'true';
+        
+        if (isDebugMode) {
+            document.getElementById('debugLog').classList.remove('hidden');
+            log('디버그 모드 활성화됨');
+        }
+
+        // HTTP 경고 표시
+        if (window.location.protocol === 'http:' && 
+            window.location.hostname !== 'localhost' && 
+            window.location.hostname !== '127.0.0.1') {
+            document.getElementById('httpWarning').classList.remove('hidden');
+            log('HTTP 환경 감지됨', true);
         }
 
         // WebRTC 설정
@@ -113,7 +184,9 @@
             iceServers: [
                 { urls: 'stun:stun.l.google.com:19302' },
                 { urls: 'stun:stun1.l.google.com:19302' },
-                { urls: 'stun:stun2.l.google.com:19302' }
+                { urls: 'stun:stun2.l.google.com:19302' },
+                { urls: 'stun:stun3.l.google.com:19302' },
+                { urls: 'stun:stun4.l.google.com:19302' }
             ],
             iceCandidatePoolSize: 10
         };
@@ -125,26 +198,136 @@
         let isConnected = false;
         let keepAliveInterval = null;
 
-        // 화면 캡처 시작
+        // 서비스 워커 인라인 JavaScript 코드
+        const serviceWorkerCode = `
+            // 서비스 워커 설치
+            self.addEventListener('install', event => {
+                console.log('서비스 워커 설치...');
+                self.skipWaiting();
+            });
+
+            // 서비스 워커 활성화
+            self.addEventListener('activate', event => {
+                console.log('서비스 워커 활성화...');
+                return self.clients.claim();
+            });
+
+            // 메시지 처리
+            self.addEventListener('message', event => {
+                console.log('서비스 워커가 메시지를 수신:', event.data);
+                
+                // 클라이언트에서 보낸 메시지 처리
+                if (event.data && event.data.type === 'KEEP_ALIVE') {
+                    console.log('연결 유지 메시지 수신');
+                }
+            });
+
+            // 연결 유지를 위한 주기적 작업
+            const KEEP_ALIVE_INTERVAL = 25000; // 25초
+
+            // 주기적으로 자기 자신에게 메시지를 보내 활성 상태 유지
+            function startKeepAlive() {
+                setInterval(() => {
+                    console.log('서비스 워커 활성 상태 유지 중...');
+                    self.registration.update();
+                }, KEEP_ALIVE_INTERVAL);
+            }
+
+            startKeepAlive();
+        `;
+
+        // Blob URL을 통한 서비스 워커 등록 (파일이 없을 때 대비)
+        async function registerServiceWorker() {
+            if (!('serviceWorker' in navigator)) {
+                log('이 브라우저는 서비스 워커를 지원하지 않습니다.', true);
+                return false;
+            }
+            
+            try {
+                // 먼저 기존 방식으로 서비스 워커 등록 시도
+                const registration = await navigator.serviceWorker.register('service-worker.js')
+                    .catch(async (error) => {
+                        log('기본 서비스 워커 등록 실패: ' + error.message, true);
+                        
+                        // 실패 시 Blob URL을 통한 등록 시도
+                        const blob = new Blob([serviceWorkerCode], { type: 'application/javascript' });
+                        const blobURL = URL.createObjectURL(blob);
+                        
+                        log('인라인 서비스 워커 등록 시도...');
+                        return navigator.serviceWorker.register(blobURL, { scope: './' });
+                    });
+                
+                log('서비스 워커 등록 성공: ' + registration.scope);
+                return true;
+            } catch (error) {
+                log('서비스 워커 등록 최종 실패: ' + error.message, true);
+                return false;
+            }
+        }
+        
+        // 브라우저 호환성 검사
+        function checkBrowserCompatibility() {
+            const results = {
+                isCompatible: true,
+                warnings: [],
+                fatals: []
+            };
+            
+            // WebRTC 지원 확인
+            if (!window.RTCPeerConnection) {
+                results.isCompatible = false;
+                results.fatals.push('WebRTC가 지원되지 않습니다.');
+            }
+            
+            // 화면 공유 API 확인
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+                // 최신 API가 없음 - 심각한 호환성 문제
+                results.isCompatible = false;
+                results.fatals.push('화면 공유 API가 지원되지 않습니다.');
+            }
+            
+            // HTTP 환경 확인
+            if (window.location.protocol === 'http:' && 
+                window.location.hostname !== 'localhost' && 
+                window.location.hostname !== '127.0.0.1') {
+                
+                results.warnings.push('HTTP 환경에서는 일부 기능이 제한될 수 있습니다.');
+            }
+            
+            // 서비스 워커 지원 확인
+            if (!('serviceWorker' in navigator)) {
+                results.warnings.push('서비스 워커가 지원되지 않아 백그라운드 기능이 제한됩니다.');
+            }
+            
+            return results;
+        }
+
+        // 화면 캡처 시작 (사용자 권한 필요)
         async function startCapture() {
             try {
+                // 화면 공유 요청 - 여기서 브라우저가 사용자에게 권한을 요청함
                 localStream = await navigator.mediaDevices.getDisplayMedia({
                     video: {
                         cursor: 'always',
-                        displaySurface: 'monitor',
-                        logicalSurface: true,
                         frameRate: { ideal: 30, max: 60 }
                     },
                     audio: false
+                }).catch(error => {
+                    log('화면 공유 권한 거부: ' + error.message, true);
+                    throw new Error('화면 공유 권한이 거부되었습니다.');
                 });
+                
+                log('화면 공유 시작됨');
                 
                 // 사용자가 화면 공유를 중단했을 때 처리
                 localStream.getVideoTracks()[0].addEventListener('ended', () => {
-                    console.log('사용자가 화면 공유를 중단했습니다.');
+                    log('사용자가 화면 공유를 중단했습니다.');
+                    
                     // 연결이 살아있다면 다시 화면 공유 시작 시도
                     if (isConnected) {
                         setTimeout(async () => {
                             if (isConnected) {
+                                log('화면 공유 재시작 시도...');
                                 await restartCapture();
                             }
                         }, 1000);
@@ -153,7 +336,8 @@
                 
                 return true;
             } catch (err) {
-                console.error('화면 캡처 중 오류 발생:', err);
+                log('화면 캡처 시작 오류: ' + err.message, true);
+                updateConnectionStatus('failed');
                 return false;
             }
         }
@@ -162,11 +346,15 @@
         async function restartCapture() {
             try {
                 if (localStream) {
+                    log('기존 화면 공유 정리 중...');
                     localStream.getTracks().forEach(track => track.stop());
                 }
                 
                 const result = await startCapture();
+                
                 if (result && peerConnection) {
+                    log('새 화면 공유 스트림으로 교체 중...');
+                    
                     // 기존 트랙 제거
                     const senders = peerConnection.getSenders();
                     senders.forEach(sender => {
@@ -180,9 +368,10 @@
                         peerConnection.addTrack(track, localStream);
                     });
                 }
+                
                 return result;
             } catch (err) {
-                console.error('화면 캡처 재시작 중 오류 발생:', err);
+                log('화면 캡처 재시작 오류: ' + err.message, true);
                 return false;
             }
         }
@@ -190,13 +379,19 @@
         // P2P 연결 시작
         async function startConnection(peerId) {
             try {
+                log('연결 시작 중...');
+                document.getElementById('connectionInfo').classList.remove('hidden');
+                updateConnectionStatus('connecting');
+                
                 // 이전 연결 정리
                 if (peerConnection) {
+                    log('이전 연결 정리 중...');
                     peerConnection.close();
                 }
                 
                 // 새 연결 생성
                 peerConnection = new RTCPeerConnection(configuration);
+                log('새 RTCPeerConnection 생성됨');
                 
                 // 데이터 채널 생성 (시그널링 및 제어 메시지용)
                 dataChannel = peerConnection.createDataChannel('controlChannel', {
@@ -204,11 +399,15 @@
                     maxRetransmits: 3
                 });
                 
+                log('데이터 채널 생성됨');
                 setupDataChannel(dataChannel);
                 
                 // 화면 캡처 시작
+                log('화면 캡처 시작 중...');
                 const captureStarted = await startCapture();
+                
                 if (!captureStarted) {
+                    log('화면 캡처 시작 실패', true);
                     return null;
                 }
                 
@@ -216,13 +415,16 @@
                 localStream.getVideoTracks().forEach(track => {
                     peerConnection.addTrack(track, localStream);
                 });
+                log('비디오 트랙 추가됨');
                 
                 // ICE 후보 수집 이벤트 처리
                 const iceCandidates = [];
                 peerConnection.onicecandidate = event => {
                     if (event.candidate) {
                         iceCandidates.push(event.candidate);
+                        log('ICE 후보 수집: ' + iceCandidates.length + '개');
                     } else {
+                        log('ICE 후보 수집 완료');
                         // ICE 수집 완료 - 시그널 데이터 업데이트
                         signalData.iceCandidates = iceCandidates;
                         document.getElementById('viewerCode').textContent = btoa(JSON.stringify(signalData));
@@ -231,7 +433,7 @@
                 
                 // 연결 상태 변화 감지
                 peerConnection.onconnectionstatechange = () => {
-                    console.log('연결 상태 변경:', peerConnection.connectionState);
+                    log('연결 상태 변경: ' + peerConnection.connectionState);
                     updateConnectionStatus(peerConnection.connectionState);
                     
                     if (peerConnection.connectionState === 'connected') {
@@ -246,12 +448,14 @@
                 };
                 
                 // SDP 제안 생성
+                log('SDP 제안 생성 중...');
                 const offer = await peerConnection.createOffer({
                     offerToReceiveAudio: false,
                     offerToReceiveVideo: false
                 });
                 
                 await peerConnection.setLocalDescription(offer);
+                log('로컬 SDP 설정됨');
                 
                 // 시그널 데이터 준비
                 signalData = {
@@ -262,13 +466,12 @@
                     iceCandidates: []
                 };
                 
-                // UI 업데이트
-                document.getElementById('connectionInfo').style.display = 'block';
-                updateConnectionStatus('connecting');
+                log('시그널 데이터 준비됨');
+                document.getElementById('viewerCode').textContent = btoa(JSON.stringify(signalData));
                 
                 return signalData;
             } catch (err) {
-                console.error('연결 설정 중 오류 발생:', err);
+                log('연결 설정 오류: ' + err.message, true);
                 return null;
             }
         }
@@ -276,43 +479,44 @@
         // 데이터 채널 설정
         function setupDataChannel(channel) {
             channel.onopen = () => {
-                console.log('데이터 채널이 열렸습니다.');
+                log('데이터 채널이 열렸습니다.');
                 // 주기적으로 상태 업데이트 메시지 전송
                 sendStatusUpdate();
             };
             
             channel.onclose = () => {
-                console.log('데이터 채널이 닫혔습니다.');
+                log('데이터 채널이 닫혔습니다.');
             };
             
             channel.onerror = (error) => {
-                console.error('데이터 채널 오류:', error);
+                log('데이터 채널 오류: ' + error, true);
             };
             
             channel.onmessage = (event) => {
                 try {
                     const message = JSON.parse(event.data);
+                    log('메시지 수신: ' + message.type);
                     handleControlMessage(message);
                 } catch (err) {
-                    console.error('메시지 처리 중 오류 발생:', err);
+                    log('메시지 처리 오류: ' + err.message, true);
                 }
             };
         }
 
         // 제어 메시지 처리
         function handleControlMessage(message) {
-            console.log('제어 메시지 수신:', message);
-            
             switch (message.type) {
                 case 'ping':
                     sendControlMessage({ type: 'pong', timestamp: Date.now() });
                     break;
                     
                 case 'restart':
+                    log('화면 공유 재시작 요청 수신');
                     restartCapture();
                     break;
                     
                 case 'quality':
+                    log('화질 조정 요청: ' + message.value);
                     adjustStreamQuality(message.value);
                     break;
             }
@@ -410,10 +614,11 @@
                 }
                 
                 if (Object.keys(constraints).length > 0) {
+                    log('화질 변경: ' + quality);
                     videoTrack.applyConstraints(constraints);
                 }
             } catch (err) {
-                console.error('스트림 품질 조정 중 오류 발생:', err);
+                log('스트림 품질 조정 오류: ' + err.message, true);
             }
         }
 
@@ -425,12 +630,15 @@
             keepAliveInterval = setInterval(() => {
                 sendStatusUpdate();
             }, 10000);
+            
+            log('연결 유지 기능 시작됨');
         }
 
         function stopKeepAlive() {
             if (keepAliveInterval) {
                 clearInterval(keepAliveInterval);
                 keepAliveInterval = null;
+                log('연결 유지 기능 중지됨');
             }
         }
 
@@ -438,44 +646,58 @@
         async function handleAnswer(answerData) {
             try {
                 if (!peerConnection) {
-                    console.error('연결 객체가 존재하지 않습니다.');
+                    log('연결 객체가 존재하지 않습니다.', true);
                     return false;
                 }
+                
+                log('응답 SDP 처리 중...');
                 
                 // 원격 설명 설정
                 const remoteDesc = new RTCSessionDescription(answerData.sdp);
                 await peerConnection.setRemoteDescription(remoteDesc);
+                log('원격 SDP 설정됨');
                 
                 // ICE 후보 추가
                 if (answerData.iceCandidates && Array.isArray(answerData.iceCandidates)) {
+                    log('원격 ICE 후보 추가 중: ' + answerData.iceCandidates.length + '개');
+                    
                     for (const candidate of answerData.iceCandidates) {
                         await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
                     }
+                    
+                    log('모든 원격 ICE 후보 추가됨');
                 }
                 
                 return true;
             } catch (err) {
-                console.error('응답 처리 중 오류 발생:', err);
+                log('응답 처리 오류: ' + err.message, true);
                 return false;
             }
         }
 
-        // 코드 수신 및 연결 처리
-        async function processViewerCode(code) {
-            try {
-                const answerData = JSON.parse(atob(code));
-                if (answerData.type !== 'answer' || !answerData.sdp) {
-                    throw new Error('유효하지 않은 응답 데이터');
-                }
+        // 페이지 로딩 시 브라우저 호환성 체크
+        window.addEventListener('load', () => {
+            const compatResult = checkBrowserCompatibility();
+            
+            // 호환성 문제가 있으면 경고 표시
+            if (!compatResult.isCompatible) {
+                let errorMessage = '브라우저 호환성 문제:\n';
+                compatResult.fatals.forEach(msg => {
+                    errorMessage += '- ' + msg + '\n';
+                    log(msg, true);
+                });
                 
-                return await handleAnswer(answerData);
-            } catch (err) {
-                console.error('뷰어 코드 처리 중 오류 발생:', err);
-                return false;
+                alert(errorMessage + '\n\n최신 Chrome, Firefox, Edge 브라우저를 사용해주세요.');
+                document.getElementById('connectBtn').disabled = true;
+            } else if (compatResult.warnings.length > 0) {
+                compatResult.warnings.forEach(msg => log(msg, false));
             }
-        }
+            
+            // 서비스 워커 등록 시도
+            registerServiceWorker();
+        });
 
-        // UI 이벤트 핸들러
+        // 연결 버튼 이벤트
         document.getElementById('connectBtn').addEventListener('click', async () => {
             const peerId = document.getElementById('peerId').value.trim();
             if (!peerId) {
@@ -489,16 +711,37 @@
             }
         });
 
+        // 코드 복사 버튼 이벤트
         document.getElementById('copyBtn').addEventListener('click', () => {
             const viewerCode = document.getElementById('viewerCode').textContent;
+            
             navigator.clipboard.writeText(viewerCode)
-                .then(() => alert('코드가 클립보드에 복사되었습니다.'))
-                .catch(err => console.error('복사 실패:', err));
+                .then(() => {
+                    log('코드가 클립보드에 복사됨');
+                    alert('코드가 클립보드에 복사되었습니다.');
+                })
+                .catch(err => {
+                    log('복사 실패: ' + err.message, true);
+                    
+                    // 클립보드 API가 실패하면 대체 방법 시도
+                    const tempInput = document.createElement('textarea');
+                    tempInput.value = viewerCode;
+                    document.body.appendChild(tempInput);
+                    tempInput.select();
+                    
+                    try {
+                        document.execCommand('copy');
+                        alert('코드가 클립보드에 복사되었습니다.');
+                    } catch (err) {
+                        alert('클립보드 복사 실패. 코드를 직접 선택하여 복사해주세요.');
+                    }
+                    
+                    document.body.removeChild(tempInput);
+                });
         });
 
-        // 페이지 닫힘 이벤트 처리
+        // 페이지 닫힘 경고
         window.addEventListener('beforeunload', (event) => {
-            // 연결이 활성화된 상태라면 메시지 표시
             if (isConnected) {
                 const message = '화면 공유 중입니다. 정말 나가시겠습니까?';
                 event.returnValue = message;
